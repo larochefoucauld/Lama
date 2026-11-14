@@ -126,3 +126,65 @@ It should build a local compiler `src/lamac` and a few tutorial executables in `
 ### Changes in Lama 1.2
 
 * New garbage collector: single-threaded stop-the-world `LISP2` (see GC Handbook for details: [1st edition](https://www.cs.kent.ac.uk/people/staff/rej/gcbook/), [2nd edition](http://gchandbook.org/)) [mark-compact](https://www.memorymanagement.org/glossary/m.html#term-mark-compact).
+
+## `lamai`: an iterative bytecode interpreter
+
+`iterative_vm/` contains `lamai`, a C++ interpreter for Lama bytecode.
+
+### Requirements
+* To build:
+  * x86-64 Linux system
+  * C/C++ compiler with C++20 support
+  * CMake >= 3.20
+  * Ninja/make
+* To run tests:
+  * Dependencies required to build Lama compiler
+  * Python 3 for test drivers
+
+### Building locally
+Everything is placed in `.build/` directory.
+
+1. Create a private opam installation and setup dependencies for Lama compiler
+    ```bash
+    $ opam init --root .build/opam --bare --no-setup --disable-sandboxing -y
+    $ opam switch create --root .build/opam lama ocaml-base-compiler.4.14.2 -y
+    $ opam install --root .build/opam --switch lama --deps-only -y ./Lama.opam
+    ```
+
+2. Build the Lama compiler
+    ```bash
+    $ OPAMROOT="$PWD/.build/opam" opam exec --root .build/opam --switch lama -- dune build --build-dir "$PWD/.build/dune" src/Driver.exe runtime/Std.i
+    ```
+    `.build/dune/default/src/Driver.exe` is the built compiler binary.
+
+3. Build `lamai`
+    ```bash
+    $ cmake -S iterative_vm -B .build/cmake/release -G Ninja -DCMAKE_BUILD_TYPE=Release
+    $ cmake --build .build/cmake/release
+    ```
+    For sanitized build, add `-DLAMAI_SANITIZE=ON` when configuring.
+
+### Running
+Compile and run test program:
+```bash
+$ mkdir -p .build/playground && cd .build/playground
+$ ../dune/default/src/Driver.exe -runtime ../dune/default/runtime -b ../../regression/test001.lama
+$ echo "5 6" | ../cmake/release/lamai test001.bc
+# prints " >  > 90"
+```
+
+### Testing
+`iterative_vm/scripts/run-tests.py` runs the `regression/` suite. For each `***.lama`, the VM output is checked to equal what is specified in `***.t`.
+
+`iterative_vm/scripts/run-long.py` runs the `regression_long/` suite. For each program, the VM output is checked to equal that of source-level interpreter (`Driver.exe -i`), as recorded in the `.t` files. 
+
+Both scripts compile the programs with `.build/dune/default/src/Driver.exe` into `.build/tests/` and run them with the VM given by `--vm`
+(default: `.build/cmake/release/lamai`). Run `--help` for all options.
+
+```bash
+$ iterative_vm/scripts/run-tests.py --vm .build/cmake/release/lamai
+# passed: 76, failed: 0, skipped (compile error): 2
+$ iterative_vm/scripts/run-long.py --vm .build/cmake/release/lamai
+# expressions: 9956 programs, passed 9956, failed 0, skipped (compile error) 0
+# deep-expressions: 1000 programs, passed 1000, failed 0, skipped (compile error) 0
+```
