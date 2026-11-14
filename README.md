@@ -188,3 +188,18 @@ $ iterative_vm/scripts/run-long.py --vm .build/cmake/release/lamai
 # expressions: 9956 programs, passed 9956, failed 0, skipped (compile error) 0
 # deep-expressions: 1000 programs, passed 1000, failed 0, skipped (compile error) 0
 ```
+
+### Performance comparison
+Performance was compared with source-level interpreter embedded in Lama compiler on the `performance/Sort.lama` test. Number of items was set to 2500 instead of 10000:
+```shell
+$ mkdir -p .build/playground && cd .build/playground
+$ ../dune/default/src/Driver.exe -runtime ../dune/default/runtime -b ../../performance/Sort.lama
+$ time ../cmake/release/lamai Sort.bc
+# real    0m2,902s
+# user    0m2,317s
+# sys     0m0,593s
+$ time ../dune/default/src/Driver.exe -runtime ../dune/default/runtime -i ../../performance/Sort.lama < /dev/null
+# real    0m24,257s
+# user    0m24,021s
+# sys     0m0,267s
+```
