@@ -18,14 +18,6 @@ namespace {
 
 constexpr std::size_t StackBytes = std::size_t{64} << 20;
 
-// Overflow is only checked at calls.
-// We require this many words to be available:
-// this is only a heuristic to estimate whether the called function
-// risks overflowing the stack and exit gracefully.
-// Note that memory protection is still enforced by the guard page.
-// TODO: compute exact callee's frame size during verification
-constexpr std::size_t StackMarginWords = 4096;
-
 // Call frame layout:
 //   bp[0] = n_args
 //   bp[-1] = saved bp
@@ -112,7 +104,7 @@ void VM::run_loop() {
   const std::uint8_t* const end = base + code.size();
   aint* const globals = globals_;
   const std::size_t n_globals = bc_.globals_count();
-  aint* const stack_limit = stack_.limit() + StackMarginWords;
+  aint* const stack_limit = stack_.limit();
   std::unordered_map<std::int32_t, const Builtin*> builtin_cache;
 
   const std::uint8_t* ip = base;
@@ -148,7 +140,9 @@ void VM::run_loop() {
   };
 
   auto push = [&](aint v) {
-    // Overflows are checked at calls
+    if (sp == stack_limit) {
+      FAIL("stack overflow");
+    }
     *--sp = v;
   };
   auto pop = [&]() -> aint {
