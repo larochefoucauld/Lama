@@ -17,7 +17,7 @@ target_compile_options(lama_runtime PRIVATE
 
 add_executable(lamai
   src/main.cpp src/bytecode.cpp src/opcodes.cpp
-  src/vm.cpp src/stack.cpp src/builtins.cpp src/api_check.cpp)
+  src/vm.cpp src/builtins.cpp src/api_check.cpp)
 # Make runtime_common.h available only for api_check.cpp.
 set_source_files_properties(src/api_check.cpp PROPERTIES INCLUDE_DIRECTORIES ${RT})
 target_compile_options(lamai PRIVATE -Wall -Wextra)

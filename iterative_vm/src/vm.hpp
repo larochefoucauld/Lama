@@ -4,7 +4,6 @@
 
 #include "bytecode.hpp"
 #include "runtime_api.hpp"
-#include "stack.hpp"
 
 namespace lama {
 
@@ -26,7 +25,6 @@ private:
 
   const Bytecode& bc_;
   Options options_;
-  Stack stack_;
   aint* globals_;
 };
 

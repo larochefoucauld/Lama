@@ -11,12 +11,22 @@
 #include <cstring>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 namespace lama {
 
 namespace {
 
 constexpr std::size_t StackBytes = std::size_t{64} << 20;
+alignas(alignof(aint)) static std::uint8_t Stack[StackBytes];
+
+aint* stack_high() {
+  return reinterpret_cast<aint*>(&Stack[0] + StackBytes);
+}
+
+aint* stack_low() {
+  return reinterpret_cast<aint*>(Stack);
+}
 
 // Call frame layout:
 //   bp[0] = n_args
@@ -48,12 +58,6 @@ struct RuntimeSession {
   RuntimeSession& operator=(const RuntimeSession&) = delete;
 };
 
-// This must be called before every call of runtime API
-// that may allocate
-inline void sync_gc(aint* sp) {
-  __gc_stack_top = static_cast<std::size_t>(as_word(sp - 1));
-}
-
 [[noreturn]] void fail_at(const std::string& what, std::ptrdiff_t offset) {
   char buf[32];
   std::snprintf(buf, sizeof(buf), " at offset 0x%.8tx", offset);
@@ -71,12 +75,11 @@ std::string hex8(std::int64_t v) {
 
 VM::VM(const Bytecode& bc, Options options)
     : bc_(bc)
-    , options_(options)
-    , stack_(StackBytes) {
+    , options_(options) {
   if (bc.globals_count() > StackBytes / sizeof(aint) / 2) {
     throw BytecodeError("too many global variables: " + std::to_string(bc.globals_count()));
   }
-  globals_ = stack_.top() - bc.globals_count();
+  globals_ = stack_high() - bc.globals_count();
   for (std::size_t i = 0; i < bc.globals_count(); i++) {
     globals_[i] = box(0);
   }
@@ -84,7 +87,8 @@ VM::VM(const Bytecode& bc, Options options)
 
 void VM::run() {
   RuntimeSession session;
-  __gc_stack_bottom = static_cast<std::size_t>(as_word(stack_.top()));
+  __gc_stack_top = reinterpret_cast<std::size_t>(stack_low() - 1);
+  __gc_stack_bottom = reinterpret_cast<std::size_t>(stack_high());
   if (options_.trace) {
     run_loop<true>();
   } else {
@@ -99,7 +103,7 @@ void VM::run_loop() {
   const std::uint8_t* const end = base + code.size();
   aint* const globals = globals_;
   const std::size_t n_globals = bc_.globals_count();
-  aint* const stack_limit = stack_.limit();
+  aint* const stack_limit = stack_low();
   std::unordered_map<std::int32_t, const Builtin*> builtin_cache;
 
   const std::uint8_t* ip = base;
@@ -144,7 +148,19 @@ void VM::run_loop() {
     if (sp >= bp) {
       FAIL("malformed bytecode: operand stack underflow");
     }
-    return *sp++;
+    return std::exchange(*sp++, 0);
+  };
+  auto pop_n = [&](std::int32_t n) -> void {
+    if (sp + n > bp) {
+      FAIL("malformed bytecode: operand stack underflow");
+    }
+    std::fill(sp, sp + n, 0);
+    sp += n;
+  };
+  auto restore_sp = [&](aint* new_sp) -> void {
+    assert(sp < new_sp);
+    std::fill(sp, new_sp, 0);
+    sp = new_sp;
   };
   auto peek = [&]() -> aint {
     if (sp >= bp) {
@@ -153,7 +169,7 @@ void VM::run_loop() {
     return *sp;
   };
   auto reverse = [&](std::size_t n) -> void {
-    if (sp + n >= bp) {
+    if (sp + n > bp) {
       FAIL("malformed bytecode: operand stack underflow");
     }
     std::reverse(sp, sp + n);
@@ -322,7 +338,6 @@ void VM::run_loop() {
     }
     case Op::String: {
       const char* str = string_at(opd_i32()).data();
-      sync_gc(sp);
       push(Bstring(&str));
       break;
     }
@@ -340,9 +355,8 @@ void VM::run_loop() {
         FAIL("malformed bytecode: negative BARRAY length");
       }
       reverse(n);
-      sync_gc(sp);
       aint result = Barray(sp, box(n));
-      sp += n;
+      pop_n(n);
       push(result);
       break;
     }
@@ -352,12 +366,11 @@ void VM::run_loop() {
       if (n_fields < 0) {
         FAIL("malformed bytecode: negative SEXP field count");
       }
-      const aint count = static_cast<aint>(n_fields) + 1;
+      std::int32_t count = n_fields + 1;
       push(hash);
       reverse(count);
-      sync_gc(sp);
       aint result = Bsexp(sp, box(count));
-      sp += count;
+      pop_n(count);
       push(result);
       break;
     }
@@ -378,7 +391,6 @@ void VM::run_loop() {
       std::int32_t line = opd_i32();
       std::int32_t col = opd_i32();
       aint value = peek();
-      sync_gc(sp);
       Bmatch_failure(value, bc_.name().c_str(), box(line), box(col));
     }
     case Op::Swap: {
@@ -465,9 +477,8 @@ void VM::run_loop() {
       }
       if (target < 0) {
         const Builtin& b = resolve_builtin(target);
-        sync_gc(sp);
         aint result = call_builtin(b, sp, n_args);
-        sp += n_args;
+        pop_n(n_args);
         push(result);
         break;
       }
@@ -557,21 +568,21 @@ void VM::run_loop() {
       }
       reverse(n_captured);
       push(box(target)); // box code offset to be ignored by GC
-      sync_gc(sp);
       aint result = Bclosure(sp, box(n_captured));
-      sp += n_captured + 1;
+      pop_n(n_captured + 1);
       push(result);
       break;
     }
     case Op::End: {
       aint result = pop();
       aint saved_ip = bp[SavedIP];
-      sp = as_ptr<aint>(bp[SavedSP]);
+      aint* old_sp = as_ptr<aint>(bp[SavedSP]);
       bp = as_ptr<aint>(bp[SavedBP]);
       if (saved_ip == HostReturn) {
         return;
       }
       ip = base + saved_ip;
+      restore_sp(old_sp);
       push(result);
       break;
     }
