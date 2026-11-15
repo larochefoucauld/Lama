@@ -73,12 +73,6 @@ VM::VM(const Bytecode& bc, Options options)
     : bc_(bc)
     , options_(options)
     , stack_(StackBytes) {
-  for (std::string_view import : bc.imports()) {
-    if (import != "Std") {
-      // TODO
-      throw BytecodeError("import of unit '" + std::string(import) + "' is not supported yet");
-    }
-  }
   if (bc.globals_count() > StackBytes / sizeof(aint) / 2) {
     throw BytecodeError("too many global variables: " + std::to_string(bc.globals_count()));
   }

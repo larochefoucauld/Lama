@@ -30,11 +30,7 @@ std::vector<std::uint8_t> read_file(const std::string& path) {
     throw BytecodeError("cannot stat '" + path + "': " + ec.message());
   }
   std::vector<std::uint8_t> data;
-  try {
-    data.resize(size);
-  } catch (const std::bad_alloc&) {
-    throw BytecodeError("unable to allocate in-memory bytecode buffer");
-  }
+  data.resize(size);
   std::size_t n = std::fread(data.data(), 1, data.size(), f);
   bool failed = n != data.size();
   std::fclose(f);
@@ -122,31 +118,8 @@ Bytecode Bytecode::load(const std::string& path) {
   if (bc.code_.back() != static_cast<std::uint8_t>(Op::Eof)) {
     throw BytecodeError("bytecode must end with EOF opcode");
   }
+  // TODO: imports
 
-  Reader imports(all.subspan(imports_off, pubs_off - imports_off));
-  try {
-    bc.imports_.reserve(n_imports);
-  } catch (const std::bad_alloc&) {
-    throw BytecodeError("unable to allocate import table");
-  }
-  for (std::int32_t i = 0; i < n_imports; i++) {
-    bc.imports_.push_back(bc.string_at(imports.i32()));
-  }
-  Reader pubs(all.subspan(pubs_off, code_off - pubs_off));
-  try {
-    bc.public_syms_.reserve(n_pubs);
-  } catch (const std::bad_alloc&) {
-    throw BytecodeError("unable to allocate public symbol table");
-  }
-  for (std::int32_t i = 0; i < n_pubs; i++) {
-    std::string_view name = bc.string_at(pubs.i32());
-    std::int32_t offset = pubs.i32();
-    std::uint8_t flag = pubs.u8();
-    if (flag > 1) {
-      throw BytecodeError("invalid public symbol flag " + std::to_string(flag));
-    }
-    bc.public_syms_.push_back({name, offset, static_cast<PubKind>(flag)});
-  }
   return bc;
 }
 

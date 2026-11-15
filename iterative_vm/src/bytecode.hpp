@@ -88,14 +88,6 @@ public:
     return code_;
   }
 
-  const std::vector<std::string_view>& imports() const {
-    return imports_;
-  }
-
-  const std::vector<PublicSymbol>& public_syms() const {
-    return public_syms_;
-  }
-
   // String table lookup
   std::string_view string_at(std::int32_t offset) const;
 
@@ -108,8 +100,6 @@ private:
   std::span<const std::uint8_t> string_table_;
   std::span<const std::uint8_t> code_;
   std::size_t globals_count_ = 0;
-  std::vector<std::string_view> imports_;
-  std::vector<PublicSymbol> public_syms_;
 };
 
 } // namespace lama
