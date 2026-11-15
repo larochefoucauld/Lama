@@ -104,7 +104,6 @@ void VM::run_loop() {
   aint* const globals = globals_;
   const std::size_t n_globals = bc_.globals_count();
   aint* const stack_limit = stack_low();
-  std::unordered_map<std::int32_t, const Builtin*> builtin_cache;
 
   const std::uint8_t* ip = base;
   const std::uint8_t* insn = base; // start of the current instruction
@@ -192,17 +191,12 @@ void VM::run_loop() {
     return LtagHash(string_at(offset).data());
   };
   auto resolve_builtin = [&](std::int32_t target) -> const Builtin& {
-    auto it = builtin_cache.find(target);
-    if (it != builtin_cache.end()) {
-      return *it->second;
-    }
     std::int32_t offset = static_cast<std::int32_t>(-static_cast<std::int64_t>(target) - 1);
     std::string_view name = string_at(offset);
     const Builtin* b = find_builtin(name);
     if (!b) {
       FAIL("unsupported builtin function '" + std::string(name) + "'");
     }
-    builtin_cache.emplace(target, b);
     return *b;
   };
 
