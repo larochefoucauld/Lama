@@ -16,8 +16,6 @@ namespace lama {
 
 namespace {
 
-static_assert(std::endian::native == std::endian::little, "bytecode operands are read with a plain memcpy");
-
 constexpr std::size_t StackBytes = std::size_t{64} << 20;
 
 // Overflow is only checked at calls.

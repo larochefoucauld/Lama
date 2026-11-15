@@ -2,20 +2,20 @@
 
 #include "opcodes.hpp"
 
-#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <new>
 
 namespace lama {
 
 namespace {
 
-constexpr std::size_t MagicSize = 4;
-constexpr std::size_t HeaderSize = MagicSize + 5 * 4;
-constexpr std::size_t ImportEntrySize = 4;
-constexpr std::size_t PubEntrySize = 9;
+const char Magic[] = {'L', 'a', 'M', 'a'};
+constexpr std::size_t HeaderSize = sizeof(Magic) + 5 * sizeof(std::int32_t);
+constexpr std::size_t ImportEntrySize = sizeof(std::int32_t);
+constexpr std::size_t PubEntrySize = 2 * sizeof(std::int32_t) + sizeof(std::uint8_t);
 constexpr std::int32_t Version = 1;
 
 std::vector<std::uint8_t> read_file(const std::string& path) {
@@ -23,13 +23,20 @@ std::vector<std::uint8_t> read_file(const std::string& path) {
   if (!f) {
     throw BytecodeError("cannot open '" + path + "': " + std::strerror(errno));
   }
-  std::vector<std::uint8_t> data;
-  std::uint8_t buf[1 << 16];
-  std::size_t n;
-  while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) {
-    data.insert(data.end(), buf, buf + n);
+  std::error_code ec;
+  std::uintmax_t size = std::filesystem::file_size(path, ec);
+  if (ec) {
+    std::fclose(f);
+    throw BytecodeError("cannot stat '" + path + "': " + ec.message());
   }
-  bool failed = std::ferror(f);
+  std::vector<std::uint8_t> data;
+  try {
+    data.resize(size);
+  } catch (const std::bad_alloc&) {
+    throw BytecodeError("unable to allocate in-memory bytecode buffer");
+  }
+  std::size_t n = std::fread(data.data(), 1, data.size(), f);
+  bool failed = n != data.size();
   std::fclose(f);
   if (failed) {
     throw BytecodeError("error reading '" + path + "'");
@@ -47,19 +54,17 @@ std::uint8_t Reader::u8() {
 }
 
 std::int32_t Reader::i32() {
-  if (data_.size() - std::min(pos_, data_.size()) < 4) {
+  std::int32_t v = 0;
+  if (pos_ + sizeof(v) > data_.size()) {
     throw BytecodeError("truncated 32-bit operand at offset " + std::to_string(pos_));
   }
-  std::uint32_t v = 0;
-  for (std::size_t i = 0; i < 4; i++) {
-    v |= static_cast<std::uint32_t>(data_[pos_ + i]) << (8 * i);
-  }
-  pos_ += 4;
+  std::memcpy(&v, &data_[pos_], sizeof(v));
+  pos_ += sizeof(v);
   return static_cast<std::int32_t>(v);
 }
 
 std::string_view Bytecode::string_at(std::int32_t offset) const {
-  if (offset < 0 || static_cast<std::size_t>(offset) >= string_table_.size()) {
+  if (static_cast<std::size_t>(offset) >= string_table_.size()) {
     throw BytecodeError("string table offset " + std::to_string(offset) + " out of range");
   }
   const auto* start = string_table_.data() + offset;
@@ -83,11 +88,11 @@ Bytecode Bytecode::load(const std::string& path) {
   if (all.size() < HeaderSize) {
     throw BytecodeError("file too small for header (" + std::to_string(all.size()) + " bytes)");
   }
-  if (std::memcmp(all.data(), "LaMa", MagicSize) != 0) {
+  if (std::memcmp(all.data(), Magic, sizeof(Magic)) != 0) {
     throw BytecodeError("invalid magic number");
   }
 
-  Reader r(all, MagicSize);
+  Reader r(all, sizeof(Magic));
   bc.version_ = r.i32();
   std::int32_t strtab_size = r.i32();
   std::int32_t globals = r.i32();
@@ -119,10 +124,20 @@ Bytecode Bytecode::load(const std::string& path) {
   }
 
   Reader imports(all.subspan(imports_off, pubs_off - imports_off));
+  try {
+    bc.imports_.reserve(n_imports);
+  } catch (const std::bad_alloc&) {
+    throw BytecodeError("unable to allocate import table");
+  }
   for (std::int32_t i = 0; i < n_imports; i++) {
     bc.imports_.push_back(bc.string_at(imports.i32()));
   }
   Reader pubs(all.subspan(pubs_off, code_off - pubs_off));
+  try {
+    bc.public_syms_.reserve(n_pubs);
+  } catch (const std::bad_alloc&) {
+    throw BytecodeError("unable to allocate public symbol table");
+  }
   for (std::int32_t i = 0; i < n_pubs; i++) {
     std::string_view name = bc.string_at(pubs.i32());
     std::int32_t offset = pubs.i32();

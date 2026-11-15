@@ -20,6 +20,8 @@ public:
 // Little-endian bytecode reader
 class Reader {
 public:
+  static_assert(std::endian::native == std::endian::little, "target byte order must match the one of bytecode");
+
   explicit Reader(std::span<const std::uint8_t> data, std::size_t pos = 0)
       : data_(data)
       , pos_(pos) {}
