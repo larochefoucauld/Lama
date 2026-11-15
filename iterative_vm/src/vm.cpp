@@ -5,7 +5,7 @@
 #include "runtime_api.hpp"
 
 #include <algorithm>
-#include <bit>
+#include <cassert>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -61,6 +61,7 @@ inline void sync_gc(aint* sp) {
 }
 
 std::string hex8(std::int64_t v) {
+  assert(v >= 0);
   char buf[32];
   std::snprintf(buf, sizeof(buf), "0x%.8llx", static_cast<unsigned long long>(v));
   return buf;
@@ -164,7 +165,7 @@ void VM::run_loop() {
     std::reverse(sp, sp + n);
   };
   auto jump_to = [&](std::int32_t target) {
-    if (target < 0 || static_cast<std::size_t>(target) >= code.size()) {
+    if (static_cast<std::size_t>(target) >= code.size()) {
       FAIL("malformed bytecode: jump target " + hex8(target) + " out of range");
     }
     ip = base + target;
@@ -511,7 +512,7 @@ void VM::run_loop() {
         FAIL("CALLC: the called value is not a closure");
       }
       aint code_ref = as_ptr<aint>(closure)[0]; // boxed offset
-      if (!is_unboxed(code_ref) || unbox(code_ref) < 0 || static_cast<std::size_t>(unbox(code_ref)) >= code.size()) {
+      if (!is_unboxed(code_ref) || static_cast<std::size_t>(unbox(code_ref)) >= code.size()) {
         FAIL("malformed closure: invalid code reference");
       }
       auto target = static_cast<std::int32_t>(unbox(code_ref));
