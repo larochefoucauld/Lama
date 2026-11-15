@@ -546,19 +546,17 @@ void VM::run_loop() {
       for (std::size_t i = 0; i < static_cast<std::size_t>(n_captured); ++i) {
         auto kind = opd_u8();
         auto idx = opd_i32();
-        switch (kind) {
-        case 0:
-          push(get_global(idx));
-          break;
-        case 1:
-          push(get_local(idx));
-          break;
-        case 2:
-          push(get_arg(idx));
-          break;
-        case 3:
-          push(get_captured(idx));
-          break;
+        switch (static_cast<ClosureCaptureKind>(kind)) {
+#define CAPTURE_CASE(kind, fn)                                                                                         \
+  case ClosureCaptureKind::kind: {                                                                                     \
+    push(fn(idx));                                                                                                     \
+    break;                                                                                                             \
+  }
+          CAPTURE_CASE(Global, get_global)
+          CAPTURE_CASE(Local, get_local)
+          CAPTURE_CASE(Arg, get_arg)
+          CAPTURE_CASE(Captured, get_captured)
+#undef CAPTURE_CASE
         default:
           FAIL("malformed bytecode: unexpected capture kind: " + std::to_string(kind));
         }

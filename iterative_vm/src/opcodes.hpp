@@ -23,6 +23,13 @@ enum class Op : std::uint8_t {
   Eof = 0xFF,
 };
 
+enum class ClosureCaptureKind : std::uint8_t {
+  Global = 0x0,
+  Local = 0x1,
+  Arg = 0x2,
+  Captured = 0x3
+};
+
 const char *op_name(std::uint8_t opcode);
 
 }  // namespace lama
