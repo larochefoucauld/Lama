@@ -178,16 +178,8 @@ void VM::run_loop() {
       FAIL(std::string("malformed bytecode: ") + e.what());
     }
   };
-  // Boxed hash of the constructor name stored at `offset` in the string table
-  std::unordered_map<std::int32_t, aint> tag_hashes;
   auto tag_hash = [&](std::int32_t offset) -> aint {
-    auto it = tag_hashes.find(offset);
-    if (it != tag_hashes.end()) {
-      return it->second;
-    }
-    aint hash = LtagHash(string_at(offset).data());
-    tag_hashes.emplace(offset, hash);
-    return hash;
+    return LtagHash(string_at(offset).data());
   };
   auto resolve_builtin = [&](std::int32_t target) -> const Builtin& {
     auto it = builtin_cache.find(target);
