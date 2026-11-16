@@ -195,11 +195,11 @@ Performance was compared with source-level interpreter embedded in Lama compiler
 $ mkdir -p .build/playground && cd .build/playground
 $ ../dune/default/src/Driver.exe -runtime ../dune/default/runtime -b ../../performance/Sort.lama
 $ time ../cmake/release/lamai Sort.bc
-# real    0m5,207s
-# user    0m4,542s
-# sys     0m0,658s
+# real    0m4,424s
+# user    0m3,737s
+# sys     0m0,686s
 $ time ../dune/default/src/Driver.exe -runtime ../dune/default/runtime -i ../../performance/Sort.lama < /dev/null
-# real    0m25,796s
-# user    0m25,482s
-# sys     0m0,290s
+# real    0m24,799s
+# user    0m24,505s
+# sys     0m0,293s
 ```
