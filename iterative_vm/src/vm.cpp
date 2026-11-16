@@ -10,8 +10,6 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include <unordered_map>
-#include <utility>
 
 namespace lama {
 
@@ -27,6 +25,47 @@ aint* stack_high() {
 aint* stack_low() {
   return reinterpret_cast<aint*>(Stack);
 }
+
+// Word-addressed __gc_stack_top wrapper
+struct {
+  operator aint*() {
+    return reinterpret_cast<aint*>(__gc_stack_top) + 1;
+  }
+
+  aint* operator=(aint* ptr) {
+    __gc_stack_top = reinterpret_cast<std::size_t>(ptr - 1);
+    return ptr;
+  }
+
+  aint* operator+=(std::int32_t n) {
+    return *this = *this + n;
+  }
+
+  aint* operator-=(std::int32_t n) {
+    return *this = *this - n;
+  }
+
+  aint* operator++() {
+    return *this += 1;
+  }
+
+  aint* operator++(int) {
+    aint* old = *this;
+    ++*this;
+    return old;
+  }
+
+  aint* operator--() {
+    return *this -= 1;
+  }
+
+  aint* operator--(int) {
+    aint* old = *this;
+    --*this;
+    return old;
+  }
+
+} sp;
 
 // Call frame layout:
 //   bp[0] = n_args
@@ -87,7 +126,6 @@ VM::VM(const Bytecode& bc, Options options)
 
 void VM::run() {
   RuntimeSession session;
-  __gc_stack_top = reinterpret_cast<std::size_t>(stack_low() - 1);
   __gc_stack_bottom = reinterpret_cast<std::size_t>(stack_high());
   if (options_.trace) {
     run_loop<true>();
@@ -107,7 +145,7 @@ void VM::run_loop() {
 
   const std::uint8_t* ip = base;
   const std::uint8_t* insn = base; // start of the current instruction
-  aint* sp = globals;
+  sp = globals;
   aint* bp = nullptr;
 
 #define FAIL(msg) fail_at((msg), insn - base)
@@ -147,19 +185,7 @@ void VM::run_loop() {
     if (sp >= bp) {
       FAIL("malformed bytecode: operand stack underflow");
     }
-    return std::exchange(*sp++, 0);
-  };
-  auto pop_n = [&](std::int32_t n) -> void {
-    if (sp + n > bp) {
-      FAIL("malformed bytecode: operand stack underflow");
-    }
-    std::fill(sp, sp + n, 0);
-    sp += n;
-  };
-  auto restore_sp = [&](aint* new_sp) -> void {
-    assert(sp < new_sp);
-    std::fill(sp, new_sp, 0);
-    sp = new_sp;
+    return *sp++;
   };
   auto peek = [&]() -> aint {
     if (sp >= bp) {
@@ -171,7 +197,7 @@ void VM::run_loop() {
     if (sp + n > bp) {
       FAIL("malformed bytecode: operand stack underflow");
     }
-    std::reverse(sp, sp + n);
+    std::reverse<aint*>(sp, sp + n);
   };
   auto jump_to = [&](std::int32_t target) {
     if (static_cast<std::size_t>(target) >= code.size()) {
@@ -350,7 +376,7 @@ void VM::run_loop() {
       }
       reverse(n);
       aint result = Barray(sp, box(n));
-      pop_n(n);
+      sp += n;
       push(result);
       break;
     }
@@ -364,7 +390,7 @@ void VM::run_loop() {
       push(hash);
       reverse(count);
       aint result = Bsexp(sp, box(count));
-      pop_n(count);
+      sp += count;
       push(result);
       break;
     }
@@ -472,7 +498,7 @@ void VM::run_loop() {
       if (target < 0) {
         const Builtin& b = resolve_builtin(target);
         aint result = call_builtin(b, sp, n_args);
-        pop_n(n_args);
+        sp += n_args;
         push(result);
         break;
       }
@@ -563,20 +589,19 @@ void VM::run_loop() {
       reverse(n_captured);
       push(box(target)); // box code offset to be ignored by GC
       aint result = Bclosure(sp, box(n_captured));
-      pop_n(n_captured + 1);
+      sp += n_captured + 1;
       push(result);
       break;
     }
     case Op::End: {
       aint result = pop();
       aint saved_ip = bp[SavedIP];
-      aint* old_sp = as_ptr<aint>(bp[SavedSP]);
+      sp = as_ptr<aint>(bp[SavedSP]);
       bp = as_ptr<aint>(bp[SavedBP]);
       if (saved_ip == HostReturn) {
         return;
       }
       ip = base + saved_ip;
-      restore_sp(old_sp);
       push(result);
       break;
     }
